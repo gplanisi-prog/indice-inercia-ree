@@ -293,7 +293,7 @@ new Chart(document.getElementById('chart'), {{
     id: 'refs',
     afterDraw(chart) {{
       const {{ctx, scales: {{x, y}}}} = chart;
-      [{{"v":{NIVEL_28A},"c":"#e74c3c","l":"28-A ≈{NIVEL_28A}}"},
+      [{{"v":{NIVEL_28A},"c":"#e74c3c","l":"28-A ≈{NIVEL_28A}"}},
        {{"v":{NIVEL_ACTUAL},"c":"#8e44ad","l":"Umbral ≈{NIVEL_ACTUAL}"}}].forEach(r => {{
         const yp = y.getPixelForValue(r.v);
         if (yp < y.top || yp > y.bottom) return;
