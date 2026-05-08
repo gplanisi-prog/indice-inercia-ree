@@ -30,20 +30,18 @@ NIVEL_28A    = 5.0
 NIVEL_ACTUAL = 6.0
 
 # ── Indicadores ESIOS de generación real por tecnología (Península) ───────────
-# Resolución: ~10 minutos. Unidad: MW (potencia activa medida).
-# Para verificar/buscar: GET https://api.esios.ree.es/indicators?text=generacion
+# Serie "Generación T.Real" — IDs verificados con discover_indicators.py
+# Nota: 552 "Solar" agrega FV + térmica (solo disponible de día).
+#        555 "Resto" incluye cogeneración, residuos y otras renovables.
 ESIOS_INDICATORS = {
-    "Nuclear":                  10034,
-    "Hidráulica":               10035,
-    "Eólica":                   10037,
-    "Solar fotovoltaica":       10038,
-    "Solar térmica":            10039,
-    "Otras renovables":         10040,
-    "Cogeneración y resto":     10041,
-    "Residuos no renovables":   10042,
-    "Carbón":                   10043,
-    "Fuel + Gas":               10044,
-    "Ciclo combinado":          10045,
+    "Hidráulica":           546,
+    "Carbón":               547,
+    "Fuel + Gas":           548,
+    "Nuclear":              549,
+    "Ciclo combinado":      550,
+    "Eólica":               551,
+    "Solar fotovoltaica":   552,   # en realidad Solar total (FV + térmica)
+    "Cogeneración y resto": 555,   # Resto: cogen. + residuos + otras renovables
 }
 
 ESIOS_BASE   = "https://api.esios.ree.es"
@@ -103,8 +101,8 @@ def fetch_esios(token: str):
         except Exception as e:
             print(f"  ESIOS {ind_id} ({tech}): {e}")
 
-    if len(gen) < 5:          # demasiados fallos
-        raise RuntimeError(f"ESIOS solo devolvió {len(gen)} tecnologías.")
+    if len(gen) < 3:          # mínimo: nuclear + CC + eólica o hidro
+        raise RuntimeError(f"ESIOS solo devolvió {len(gen)} tecnologías (mínimo 3).")
 
     return gen, data_ts, "MW"
 
@@ -184,11 +182,9 @@ def fetch_generation():
 
 def calculate_index(gen: dict) -> float:
     def g(k): return gen.get(k, 0.0)
-    num = g("Solar fotovoltaica") + 0.5 * g("Eólica")
+    num = g("Solar fotovoltaica") + 0.5 * g("Eólica")   # "Solar fotovoltaica" = Solar total
     den = (g("Ciclo combinado") + g("Hidráulica") + 0.5 * g("Nuclear") +
-           g("Carbón") + g("Fuel + Gas") + g("Solar térmica") +
-           g("Cogeneración y resto") + g("Otras renovables") +
-           g("Residuos no renovables"))
+           g("Carbón") + g("Fuel + Gas") + g("Cogeneración y resto"))
     return round(num / den, 3) if den > 0 else 0.0
 
 
@@ -236,8 +232,7 @@ def generate_html(idx, gen, history, run_ts, data_ts, fuente, magnitud):
 
     num_total = gen.get("Solar fotovoltaica", 0) + 0.5 * gen.get("Eólica", 0)
     den_total = (sum(gen.get(k,0) for k in ["Ciclo combinado","Hidráulica","Carbón",
-                 "Fuel + Gas","Solar térmica","Cogeneración y resto",
-                 "Otras renovables","Residuos no renovables"])
+                 "Fuel + Gas","Cogeneración y resto"])
                  + 0.5 * gen.get("Nuclear", 0))
 
     return f"""<!DOCTYPE html>
@@ -297,10 +292,7 @@ td:last-child{{text-align:right;font-weight:600;color:#bbb;font-variant-numeric:
       <tr><td>Nuclear &times; 0.5</td><td>{gv("Nuclear",.5)} {magnitud}</td></tr>
       <tr><td>Carbón</td><td>{gv("Carbón")} {magnitud}</td></tr>
       <tr><td>Fuel + Gas</td><td>{gv("Fuel + Gas")} {magnitud}</td></tr>
-      <tr><td>Solar térmica</td><td>{gv("Solar térmica")} {magnitud}</td></tr>
-      <tr><td>Cogeneración y resto</td><td>{gv("Cogeneración y resto")} {magnitud}</td></tr>
-      <tr><td>Otras renovables</td><td>{gv("Otras renovables")} {magnitud}</td></tr>
-      <tr><td>Residuos no renov.</td><td>{gv("Residuos no renovables")} {magnitud}</td></tr>
+      <tr><td>Cogen. + resto</td><td>{gv("Cogeneración y resto")} {magnitud}</td></tr>
       <tr style="color:#7f8c8d"><td><b>Total</b></td><td><b>{den_total:,.0f} {magnitud}</b></td></tr>
     </table>
   </div>
