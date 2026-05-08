@@ -38,6 +38,8 @@ jobs:
         run: pip install requests
 
       - name: Ejecutar script
+        env:
+          ESIOS_TOKEN: ${{ secrets.ESIOS_TOKEN }}
         run: python update_index.py
 
       # Guardar history.json en el repo para que persista entre ejecuciones

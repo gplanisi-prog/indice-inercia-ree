@@ -155,7 +155,15 @@ def fetch_redata():
 # ── 1. OBTENER DATOS (con fallback) ──────────────────────────────────────────
 
 def fetch_generation():
+    # Buscar token: 1) variable de entorno, 2) fichero .env local (solo para pruebas)
     token = os.environ.get("ESIOS_TOKEN", "").strip()
+    if not token:
+        env_file = Path(".env")
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("ESIOS_TOKEN="):
+                    token = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
 
     if token:
         print("Intentando ESIOS (potencia instantánea MW)...")
