@@ -30,21 +30,32 @@ NIVEL_28A    = 5.0
 NIVEL_ACTUAL = 6.0
 
 # ── Indicadores ESIOS de generación real por tecnología (Península) ───────────
-# Serie "Generación T.Real" — IDs verificados con discover_indicators.py
-# Nota: 552 "Solar" agrega FV + térmica (solo disponible de día).
-#        555 "Resto" incluye cogeneración, residuos y otras renovables.
+# IDs verificados con discover_indicators.py
 ESIOS_INDICATORS = {
-    "Hidráulica":           546,
-    "Carbón":               547,
-    "Fuel + Gas":           548,
-    "Nuclear":              549,
-    "Ciclo combinado":      550,
-    "Eólica":               551,
-    "Solar fotovoltaica":   552,   # en realidad Solar total (FV + térmica)
-    "Cogeneración y resto": 555,   # Resto: cogen. + residuos + otras renovables
+    # ── Numerador (inversores) ──────────────────────────────────────────────
+    "Solar fotovoltaica":     1295,  # Generación T.Real Solar fotovoltaica
+    "Eólica":                  551,  # Generación T.Real eólica
+
+    # ── Denominador (rotativos) ─────────────────────────────────────────────
+    "Hidráulica":             2067,  # Generación T.Real generación hidráulica Nacional
+    "Turbinación bombeo":     2079,  # Generación T.Real turbinación bombeo (rotativo, genera)
+    "Nuclear":                 549,  # Generación T.Real nuclear
+    "Ciclo combinado":         550,  # Generación T.Real C.Combinado
+    "Carbón":                  547,  # Generación T.Real carbón
+    "Fuel + Gas":              548,  # Generación T.Real fuel-gas
+    "Solar térmica":          1294,  # Generación T.Real Solar térmica (turbina vapor → rotativo)
+    "Cogeneración y resto":    555,  # Resto T.Real (cogen. + residuos + otras)
 }
 
 ESIOS_BASE   = "https://api.esios.ree.es"
+
+# ── Indicadores ESIOS de curtailment (ERNI: Energía Renovable No Integrable) ──
+# Publicados por REE en tiempo real. Valor 0 = sin curtailment.
+ESIOS_CURTAILMENT = {
+    "pct_total": 10462,   # % ERNI total (RTT + RTD)
+    "pct_rtt":   10458,   # % por restricciones en Red de Transporte
+    "pct_rtd":   10459,   # % por restricciones en Red de Distribución
+}
 
 # ── Headers ESIOS ─────────────────────────────────────────────────────────────
 def esios_headers(token: str) -> dict:
@@ -67,13 +78,23 @@ REDATA_HEADERS = {
 
 # ── 1a. OBTENER DATOS — ESIOS ─────────────────────────────────────────────────
 
+def _last_value(indicator_json: dict) -> tuple[float, str]:
+    """Extrae (valor, timestamp) del último punto de un indicador ESIOS."""
+    values = indicator_json.get("indicator", {}).get("values", [])
+    if not values:
+        return 0.0, ""
+    last = values[-1]
+    return float(last.get("value") or 0.0), last.get("datetime", "")
+
+
 def fetch_esios(token: str):
     """
-    Consulta ESIOS para cada tecnología. Devuelve el último valor MW de cada una.
-    Pide los últimos 30 minutos con resolución de 10 minutos.
+    Consulta ESIOS para cada tecnología.
+    Ventana de 2 horas sin time_trunc para respetar la resolución nativa
+    de cada indicador (algunos son horarios, otros 10 min).
     """
     now   = datetime.now(timezone.utc)
-    start = (now - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    start = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
     end   = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     hdrs  = esios_headers(token)
 
@@ -82,32 +103,58 @@ def fetch_esios(token: str):
 
     for tech, ind_id in ESIOS_INDICATORS.items():
         url = (f"{ESIOS_BASE}/indicators/{ind_id}"
-               f"?start_date={start}&end_date={end}&time_trunc=ten_minutes")
+               f"?start_date={start}&end_date={end}")
         try:
             r = requests.get(url, headers=hdrs, timeout=20)
             if not r.ok:
                 print(f"  ESIOS {ind_id} ({tech}): HTTP {r.status_code}")
                 continue
-            values = (r.json()
-                       .get("indicator", {})
-                       .get("values", []))
-            if values:
-                last   = values[-1]
-                val    = last.get("value") or 0.0
-                ts     = last.get("datetime", "")
-                gen[tech] = max(0.0, float(val))
+            val, ts = _last_value(r.json())
+            if val > 0 or ts:                    # registrar aunque sea 0 si hay timestamp
+                gen[tech] = max(0.0, val)
                 if ts > data_ts:
                     data_ts = ts
+                print(f"  {ind_id} {tech}: {val:.0f} MW")
+            else:
+                print(f"  {ind_id} {tech}: sin datos")
         except Exception as e:
             print(f"  ESIOS {ind_id} ({tech}): {e}")
 
-    if len(gen) < 3:          # mínimo: nuclear + CC + eólica o hidro
+    if len(gen) < 3:
         raise RuntimeError(f"ESIOS solo devolvió {len(gen)} tecnologías (mínimo 3).")
 
     return gen, data_ts, "MW"
 
 
-# ── 1b. OBTENER DATOS — apidatos.ree.es (respaldo) ───────────────────────────
+# ── 1b. CURTAILMENT — ESIOS ───────────────────────────────────────────────────
+
+def fetch_curtailment(token: str) -> dict:
+    """
+    Devuelve {'pct_total': x, 'pct_rtt': x, 'pct_rtd': x} en %.
+    Retorna ceros si no hay datos (= sin curtailment activo).
+    """
+    now   = datetime.now(timezone.utc)
+    start = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end   = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    hdrs  = esios_headers(token)
+    result = {k: 0.0 for k in ESIOS_CURTAILMENT}
+
+    for key, ind_id in ESIOS_CURTAILMENT.items():
+        url = (f"{ESIOS_BASE}/indicators/{ind_id}"
+               f"?start_date={start}&end_date={end}")
+        try:
+            r = requests.get(url, headers=hdrs, timeout=15)
+            if r.ok:
+                values = r.json().get("indicator", {}).get("values", [])
+                if values:
+                    result[key] = float(values[-1].get("value") or 0.0)
+        except Exception:
+            pass   # curtailment no crítico; continuar con 0
+
+    return result
+
+
+# ── 1c. OBTENER DATOS — apidatos.ree.es (respaldo) ───────────────────────────
 
 def fetch_redata():
     """Usa apidatos.ree.es con estructura-generacion a horas completas."""
@@ -168,23 +215,25 @@ def fetch_generation():
         try:
             gen, data_ts, mag = fetch_esios(token)
             print(f"  ✓ ESIOS OK — {len(gen)} tecnologías")
-            return gen, data_ts, mag, "ESIOS · MW instantáneo ~10 min"
+            return gen, data_ts, mag, "ESIOS · MW instantáneo ~10 min", token
         except Exception as e:
             print(f"  ESIOS falló: {e} — usando respaldo")
     else:
         print("Sin token ESIOS — usando apidatos.ree.es")
 
     gen, data_ts, mag = fetch_redata()
-    return gen, data_ts, mag, f"apidatos.ree.es · {mag}"
+    return gen, data_ts, mag, f"apidatos.ree.es · {mag}", ""
 
 
 # ── 2. CALCULAR ÍNDICE ────────────────────────────────────────────────────────
 
 def calculate_index(gen: dict) -> float:
     def g(k): return gen.get(k, 0.0)
-    num = g("Solar fotovoltaica") + 0.5 * g("Eólica")   # "Solar fotovoltaica" = Solar total
-    den = (g("Ciclo combinado") + g("Hidráulica") + 0.5 * g("Nuclear") +
-           g("Carbón") + g("Fuel + Gas") + g("Cogeneración y resto"))
+    num = g("Solar fotovoltaica") + 0.5 * g("Eólica")
+    den = (g("Hidráulica") + g("Turbinación bombeo") +
+           0.5 * g("Nuclear") +
+           g("Ciclo combinado") + g("Carbón") + g("Fuel + Gas") +
+           g("Solar térmica") + g("Cogeneración y resto"))
     return round(num / den, 3) if den > 0 else 0.0
 
 
@@ -220,7 +269,13 @@ def format_ts(iso: str) -> str:
 
 # ── 5. GENERAR HTML ───────────────────────────────────────────────────────────
 
-def generate_html(idx, gen, history, run_ts, data_ts, fuente, magnitud):
+def curtailment_color(pct: float) -> str:
+    if pct <= 0:    return "#27ae60"
+    if pct < 5:     return "#f1c40f"
+    if pct < 15:    return "#e67e22"
+    return "#e74c3c"
+
+def generate_html(idx, gen, history, run_ts, data_ts, fuente, magnitud, curt: dict):
     color, level, desc = risk(idx)
     sl = history[-72:]
     chart_labels = json.dumps([h["t"] for h in sl])
@@ -231,9 +286,16 @@ def generate_html(idx, gen, history, run_ts, data_ts, fuente, magnitud):
         return f"{v:,.0f}".replace(",", ".")
 
     num_total = gen.get("Solar fotovoltaica", 0) + 0.5 * gen.get("Eólica", 0)
-    den_total = (sum(gen.get(k,0) for k in ["Ciclo combinado","Hidráulica","Carbón",
-                 "Fuel + Gas","Cogeneración y resto"])
+    den_total = (sum(gen.get(k,0) for k in ["Hidráulica","Turbinación bombeo",
+                 "Ciclo combinado","Carbón","Fuel + Gas",
+                 "Solar térmica","Cogeneración y resto"])
                  + 0.5 * gen.get("Nuclear", 0))
+
+    c_total = curt.get("pct_total", 0.0)
+    c_rtt   = curt.get("pct_rtt",   0.0)
+    c_rtd   = curt.get("pct_rtd",   0.0)
+    c_color = curtailment_color(c_total)
+    c_label = "Sin curtailment" if c_total <= 0 else f"{c_total:.1f} % de renovable vertida"
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -287,15 +349,31 @@ td:last-child{{text-align:right;font-weight:600;color:#bbb;font-variant-numeric:
   <div class="card">
     <div class="sh" style="color:#7f8c8d">Denominador — rotativos</div>
     <table>
-      <tr><td>Ciclo combinado</td><td>{gv("Ciclo combinado")} {magnitud}</td></tr>
       <tr><td>Hidráulica</td><td>{gv("Hidráulica")} {magnitud}</td></tr>
+      <tr><td>Turbinación bombeo</td><td>{gv("Turbinación bombeo")} {magnitud}</td></tr>
       <tr><td>Nuclear &times; 0.5</td><td>{gv("Nuclear",.5)} {magnitud}</td></tr>
+      <tr><td>Ciclo combinado</td><td>{gv("Ciclo combinado")} {magnitud}</td></tr>
       <tr><td>Carbón</td><td>{gv("Carbón")} {magnitud}</td></tr>
       <tr><td>Fuel + Gas</td><td>{gv("Fuel + Gas")} {magnitud}</td></tr>
+      <tr><td>Solar térmica</td><td>{gv("Solar térmica")} {magnitud}</td></tr>
       <tr><td>Cogen. + resto</td><td>{gv("Cogeneración y resto")} {magnitud}</td></tr>
       <tr style="color:#7f8c8d"><td><b>Total</b></td><td><b>{den_total:,.0f} {magnitud}</b></td></tr>
     </table>
   </div>
+</div>
+<div class="card">
+  <div class="sh" style="color:{c_color}">Curtailment — Energía Renovable No Integrable (ERNI)</div>
+  <div style="font-size:2.8rem;font-weight:900;color:{c_color};line-height:1.1">{c_total:.1f} %</div>
+  <div style="font-size:.9rem;color:#999;margin:6px 0 12px">{c_label}</div>
+  <table>
+    <tr><td>Red de Transporte (RTT)</td><td style="color:{c_color}">{c_rtt:.2f} %</td></tr>
+    <tr><td>Red de Distribución (RTD)</td><td style="color:{c_color}">{c_rtd:.2f} %</td></tr>
+  </table>
+  <p style="font-size:.78rem;color:#555;margin-top:10px">
+    Porcentaje de generación renovable disponible que no puede ser absorbida por la red
+    en este momento por restricciones técnicas. 0 % = toda la renovable disponible entra en la red.
+    Fuente: indicadores ESIOS 10458, 10459, 10462.
+  </p>
 </div>
 <div class="card">
   <div class="ref-box"><b>28 de abril de 2025 (apagón ibérico)</b> &nbsp;·&nbsp; índice ≈ {NIVEL_28A}</div>
@@ -341,7 +419,7 @@ new Chart(document.getElementById('chart'),{{
 if __name__ == "__main__":
     print("Obteniendo datos de generación...")
     try:
-        gen, data_ts, magnitud, fuente = fetch_generation()
+        gen, data_ts, magnitud, fuente, token = fetch_generation()
         if not gen:
             print("ERROR: sin datos.", file=sys.stderr); sys.exit(1)
 
@@ -349,12 +427,21 @@ if __name__ == "__main__":
         run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         data_ts_fmt = format_ts(data_ts)
 
+        # Curtailment (solo si tenemos token ESIOS; si no, devuelve ceros)
+        curt = {}
+        if token:
+            print("Obteniendo datos de curtailment...")
+            curt = fetch_curtailment(token)
+            print(f"  ERNI total: {curt.get('pct_total', 0):.2f} %  "
+                  f"RTT: {curt.get('pct_rtt', 0):.2f} %  "
+                  f"RTD: {curt.get('pct_rtd', 0):.2f} %")
+
         history = load_history()
         history.append({"t": data_ts_fmt[-5:] or run_ts[11:16], "v": idx})
         history = history[-MAX_HISTORY:]
         save_history(history)
 
-        html = generate_html(idx, gen, history, run_ts, data_ts_fmt, fuente, magnitud)
+        html = generate_html(idx, gen, history, run_ts, data_ts_fmt, fuente, magnitud, curt)
         DOCS_DIR.mkdir(parents=True, exist_ok=True)
         OUTPUT_HTML.write_text(html, encoding="utf-8")
 
