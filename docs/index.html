@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="300">
+<title>Índice de Inercia · Red Eléctrica España</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#111;color:#ddd;padding:16px;max-width:860px;margin:0 auto}
+h1{font-size:1.05rem;color:#666;font-weight:400;margin-bottom:16px;letter-spacing:.5px}
+.card{background:#1c1c1e;border-radius:14px;padding:20px;margin-bottom:14px}
+.big{font-size:5.5rem;font-weight:900;color:#f1c40f;line-height:1;letter-spacing:-2px}
+.risk-label{font-size:1.25rem;color:#f1c40f;margin:8px 0 4px}
+.risk-desc{color:#999;font-size:.9rem}
+.ts-block{margin-top:12px;font-size:.78rem;line-height:1.8;color:#555}
+.ts-block b{color:#888}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+td{padding:5px 6px;border-bottom:1px solid #252525}
+td:last-child{text-align:right;font-weight:600;color:#bbb;font-variant-numeric:tabular-nums}
+.ref-box{border-left:3px solid #2a2a2a;padding:8px 12px;margin:6px 0;font-size:.85rem;color:#777}
+.ref-box b{color:#aaa}
+.note{font-size:.8rem;color:#555;line-height:1.6;margin-top:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.sh{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+@media(max-width:520px){.big{font-size:4rem}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>ÍNDICE DE INERCIA DE RED · ESPAÑA (PENÍNSULA)</h1>
+<div class="card">
+  <div class="big">3.40</div>
+  <div class="risk-label">● Moderado</div>
+  <div class="risk-desc">Penetración creciente de inversores. Inercia aceptable.</div>
+  <div class="ts-block">
+    <b>Datos de:</b> 08/05/2026 15:00 (hora peninsular)<br>
+    <b>Script:</b> 2026-05-08 13:13 UTC &nbsp;·&nbsp; <b>Fuente:</b> ESIOS · MW instantáneo ~10 min &nbsp;·&nbsp; <b>Unidad:</b> MW
+  </div>
+</div>
+<div class="card"><canvas id="chart"></canvas></div>
+<div class="grid2">
+  <div class="card">
+    <div class="sh" style="color:#3498db">Numerador — inversores</div>
+    <table>
+      <tr><td>Solar fotovoltaica</td><td>22.257 MW</td></tr>
+      <tr><td>Eólica &times; 0.5</td><td>1.984 MW</td></tr>
+      <tr style="color:#3498db"><td><b>Total</b></td><td><b>24,240 MW</b></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <div class="sh" style="color:#7f8c8d">Denominador — rotativos</div>
+    <table>
+      <tr><td>Hidráulica</td><td>1.982 MW</td></tr>
+      <tr><td>Turbinación bombeo</td><td>0 MW</td></tr>
+      <tr><td>Nuclear &times; 0.5</td><td>2.408 MW</td></tr>
+      <tr><td>Ciclo combinado</td><td>1.645 MW</td></tr>
+      <tr><td>Carbón</td><td>167 MW</td></tr>
+      <tr><td>Fuel + Gas</td><td>0 MW</td></tr>
+      <tr><td>Solar térmica</td><td>934 MW</td></tr>
+      <tr><td>Cogen. + resto</td><td>0 MW</td></tr>
+      <tr style="color:#7f8c8d"><td><b>Total</b></td><td><b>7,136 MW</b></td></tr>
+    </table>
+  </div>
+</div>
+<div class="card">
+  <div class="sh" style="color:#27ae60">Curtailment — Energía Renovable No Integrable (ERNI)</div>
+  <div style="font-size:2.8rem;font-weight:900;color:#27ae60;line-height:1.1">0.0 %</div>
+  <div style="font-size:.9rem;color:#999;margin:6px 0 12px">Sin curtailment</div>
+  <table>
+    <tr><td>Red de Transporte (RTT)</td><td style="color:#27ae60">0.00 %</td></tr>
+    <tr><td>Red de Distribución (RTD)</td><td style="color:#27ae60">0.00 %</td></tr>
+  </table>
+  <p style="font-size:.78rem;color:#555;margin-top:10px">
+    Porcentaje de generación renovable disponible que no puede ser absorbida por la red
+    en este momento por restricciones técnicas. 0 % = toda la renovable disponible entra en la red.
+    Fuente: indicadores ESIOS 10458, 10459, 10462.
+  </p>
+</div>
+<div class="card">
+  <div class="ref-box"><b>28 de abril de 2025 (apagón ibérico)</b> &nbsp;·&nbsp; índice ≈ 5.0</div>
+  <div class="ref-box"><b>Umbral estimado actual</b> (tras mejoras de red) &nbsp;·&nbsp; ≈ 6.0</div>
+  <p class="note">El índice mide la proporción de generación desacoplada mecánicamente de la frecuencia
+  de red (inversores: solar FV y eólica parcial) frente a la generación que sostiene la inercia del sistema
+  (máquinas rotativas síncronas). Valores altos indican baja inercia y mayor vulnerabilidad ante
+  perturbaciones de frecuencia. La hidráulica de bombeo se excluye por ser consumo neto.<br><br>
+  Datos: <a href="https://api.esios.ree.es" style="color:#444">ESIOS</a> /
+  <a href="https://apidatos.ree.es" style="color:#444">REData</a> ·
+  Código: <a href="https://github.com/gplanisi-prog/indice-inercia-ree" style="color:#444">GitHub</a> ·
+  Actualización cada ~10 min vía GitHub Actions.</p>
+</div>
+<script>
+new Chart(document.getElementById('chart'),{
+  type:'line',
+  data:{labels:["10:27", "10:57", "10:58", "11:04", "08:10", "09:30", "14:55", "15:00"],datasets:[{data:[0.8, 0.8, 0.8, 0.8, 0.098, 0.174, 0.468, 3.397],borderColor:'#f1c40f',
+    backgroundColor:'#f1c40f18',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},
+  options:{responsive:true,animation:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' Índice: '+c.parsed.y.toFixed(2)}}},
+    scales:{x:{ticks:{color:'#444',maxTicksLimit:8},grid:{color:'#1a1a1a'}},
+             y:{min:0,ticks:{color:'#444'},grid:{color:'#1a1a1a'}}}},
+  plugins:[{id:'refs',afterDraw(chart){
+    const {ctx,scales:{x,y}}=chart;
+    [{"v":5.0,"c":"#e74c3c","l":"28-A ≈5.0"},
+     {"v":6.0,"c":"#8e44ad","l":"Umbral ≈6.0"}].forEach(r=>{
+      const yp=y.getPixelForValue(r.v);
+      if(yp<y.top||yp>y.bottom)return;
+      ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle=r.c;ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(x.left,yp);ctx.lineTo(x.right,yp);ctx.stroke();
+      ctx.setLineDash([]);ctx.fillStyle=r.c;ctx.font='11px sans-serif';
+      ctx.fillText(r.l,x.right-90,yp-4);ctx.restore();
+    });
+  }}]
+});
+</script>
+</body></html>
